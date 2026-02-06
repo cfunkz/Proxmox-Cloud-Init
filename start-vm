@@ -1,120 +1,79 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-die() { echo "ERROR: $*" >&2; exit 1; }
+die(){ echo "ERROR: $*" >&2; exit 1; }
+need(){ command -v "$1" >/dev/null || die "Missing command: $1"; }
+prompt_default(){ local q="$1" d="$2" __v="$3" a; read -rp "$q [$d]: " a; [[ -z "$a" ]] && a="$d"; printf -v "$__v" "%s" "$a"; }
+prompt_required(){ local q="$1" __v="$2" a; while true; do read -rp "$q: " a; [[ -n "$a" ]] && break; done; printf -v "$__v" "%s" "$a"; }
 
-need() { 
-  command -v "$1" >/dev/null || die "Missing: $1"
-}
-
-prompt_default() {
-  local q="$1" d="$2" __v="$3" a
-  read -rp "$q [$d]: " a
-  printf -v "$__v" "%s" "${a:-$d}"
-}
-
-prompt_required() {
-  local q="$1" __v="$2" a
-  while [[ -z "${a:-}" ]]; do
-    read -rp "$q: " a
-  done
-  printf -v "$__v" "%s" "$a"
-}
-
-is_ipv4() {
+is_ipv4(){
   local ip="$1"
   [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
   IFS='.' read -r a b c d <<<"$ip"
-  for o in "$a" "$b" "$c" "$d"; do 
-    [[ "$o" -ge 0 && "$o" -le 255 ]] || return 1
-  done
+  for o in "$a" "$b" "$c" "$d"; do [[ "$o" -ge 0 && "$o" -le 255 ]] || return 1; done
 }
 
-# Check dependencies
-need qm
-need pvesm
-need awk
-need wget
+need qm; need pvesm; need awk; need grep; need wget; need tr; need head
 
 echo "=== Proxmox: Ubuntu Cloud-Init VM ==="
 echo
 
-# VM settings
-prompt_required "VMID (numeric)" VMID
+# --- VM Settings ---
+prompt_required "VMID (e.g. 198)" VMID
 [[ "$VMID" =~ ^[0-9]+$ ]] || die "VMID must be numeric"
 qm status "$VMID" &>/dev/null && die "VMID $VMID already exists"
 
 prompt_default "VM Name" "ubuntu-vm" VMNAME
 prompt_default "Storage" "local-lvm" STORAGE
-pvesm status | awk 'NR>1 {print $1}' | grep -qx "$STORAGE" || die "Storage '$STORAGE' not found"
+pvesm status | awk 'NR>1{print $1}' | grep -qx "$STORAGE" || die "Storage '$STORAGE' not found"
 
 prompt_default "Disk size (e.g. 100G)" "100G" DISK_SIZE
-prompt_default "Memory (MB)" "16384" MEM
+prompt_default "Memory MB" "16384" MEM
 prompt_default "CPU cores" "8" CORES
-prompt_default "Network bridge" "vmbr0" BRIDGE
+prompt_default "Bridge" "vmbr0" BRIDGE
 
-# Network settings
+# --- Network ---
 echo
-echo "=== Network ==="
-read -rp "Use DHCP? (y/N): " USE_DHCP
-USE_DHCP="${USE_DHCP,,}"
+echo "=== Network (static) ==="
+prompt_default "IP address" "192.168.1.64" IP_ADDR; is_ipv4 "$IP_ADDR" || die "Bad IP"
+prompt_default "CIDR" "24" CIDR; [[ "$CIDR" =~ ^[0-9]+$ ]] || die "Bad CIDR"
+prompt_default "Gateway" "192.168.1.1" GATEWAY; is_ipv4 "$GATEWAY" || die "Bad gateway"
+prompt_default "DNS" "1.1.1.1" DNS; is_ipv4 "$DNS" || die "Bad DNS"
 
-if [[ "$USE_DHCP" == "y" ]]; then
-  IPCONFIG0="ip=dhcp"
-  IP_ADDR="(DHCP)"
-  DNS="(DHCP)"
-else
-  prompt_default "IP address" "192.168.1.64" IP_ADDR
-  is_ipv4 "$IP_ADDR" || die "Invalid IP"
-
-  prompt_default "CIDR" "24" CIDR
-  [[ "$CIDR" =~ ^[0-9]+$ ]] || die "Invalid CIDR"
-
-  prompt_default "Gateway" "192.168.1.1" GATEWAY
-  is_ipv4 "$GATEWAY" || die "Invalid gateway"
-
-  prompt_default "DNS" "1.1.1.1" DNS
-  is_ipv4 "$DNS" || die "Invalid DNS"
-
-  IPCONFIG0="ip=${IP_ADDR}/${CIDR},gw=${GATEWAY}"
-fi
-
-# Cloud-init user
+# --- Cloud-init user ---
 echo
 echo "=== Cloud-init user ==="
 prompt_default "Username" "ubuntu" CIUSER
-
-read -rsp "Password (leave blank to auto-generate): " CIPASS
-echo
+read -rsp "Password (blank = auto-generate): " CIPASS; echo
 if [[ -z "$CIPASS" ]]; then
-  CIPASS="$(openssl rand -base64 12)"
+  CIPASS="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 18 || true)"
+  [[ -n "$CIPASS" ]] || CIPASS="ChangeMe123456789"
   echo "Generated password: $CIPASS"
 fi
 
+echo
 read -rp "SSH public key (optional, press Enter to skip): " SSHKEY_LINE
 
-# Image
+# --- Image ---
 echo
 prompt_default "Ubuntu Image URL" "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img" IMG_URL
-IMG_PATH="/var/tmp/ubuntu-cloud-${VMID}.img"
+IMG_PATH="/tmp/ubuntu-cloud-${VMID}.img"
 
-# Summary
+# --- Summary ---
 echo
-echo "=== Summary ==="
+echo "Summary:"
 echo "  VMID: $VMID  Name: $VMNAME"
-echo "  Storage: $STORAGE | Disk: $DISK_SIZE"
-echo "  Memory: ${MEM}MB | CPU: $CORES cores"
-echo "  IP: $IP_ADDR | CIDR: ${CIDR:-N/A} | Gateway: ${GATEWAY:-N/A} | DNS: $DNS"
+echo "  Storage: $STORAGE ($DISK_SIZE)"
+echo "  Memory: ${MEM}MB  CPU: $CORES cores"
+echo "  IP: $IP_ADDR/$CIDR  Gateway: $GATEWAY  DNS: $DNS"
 echo "  User: $CIUSER"
-echo
-
 read -rp "Proceed? (y/N): " OK
 [[ "${OK,,}" == "y" ]] || die "Aborted"
 
-# Create VM
+# --- Create VM ---
 echo "[+] Downloading cloud image..."
-wget -q --show-progress -O "$IMG_PATH" "$IMG_URL" || die "Download failed"
-[[ -s "$IMG_PATH" ]] || die "Image file empty"
+wget -q --show-progress -O "$IMG_PATH" "$IMG_URL"
+[[ -s "$IMG_PATH" ]] || die "Download failed"
 
 echo "[+] Creating VM..."
 qm create "$VMID" \
@@ -135,27 +94,30 @@ qm set "$VMID" --efidisk0 "$STORAGE:1,format=raw,efitype=4m,pre-enrolled-keys=0"
 
 echo "[+] Importing OS disk..."
 qm importdisk "$VMID" "$IMG_PATH" "$STORAGE" --format raw
+OS_VOL="$(qm config "$VMID" | awk -F': ' '/^unused0:/{print $2}')"
+[[ -n "$OS_VOL" ]] || die "Import failed"
+qm set "$VMID" --scsi0 "${OS_VOL},discard=on,iothread=1"
 
-echo "[+] Attaching disks..."
-qm set "$VMID" --scsi0 "${STORAGE}:vm-${VMID}-disk-0,discard=on,iothread=1"
+echo "[+] Adding cloud-init drive..."
 qm set "$VMID" --ide2 "$STORAGE:cloudinit"
 
 echo "[+] Configuring cloud-init..."
 qm set "$VMID" \
   --ciuser "$CIUSER" \
   --cipassword "$CIPASS" \
-  --ipconfig0 "$IPCONFIG0"
-
-if [[ "$USE_DHCP" != "y" ]]; then
-  qm set "$VMID" --nameserver "$DNS"
-fi
+  --ipconfig0 "ip=${IP_ADDR}/${CIDR},gw=${GATEWAY}" \
+  --nameserver "$DNS"
 
 if [[ -n "$SSHKEY_LINE" ]]; then
-  qm set "$VMID" --sshkeys <(echo "$SSHKEY_LINE")
+  KEYFILE="/tmp/vm-${VMID}-sshkey.pub"
+  printf "%s\n" "$SSHKEY_LINE" > "$KEYFILE"
+  chmod 600 "$KEYFILE"
+  qm set "$VMID" --sshkeys "$KEYFILE"
+  rm -f "$KEYFILE"
 fi
 
 echo "[+] Resizing disk to $DISK_SIZE..."
-qm resize "$VMID" scsi0 "$DISK_SIZE"
+qm resize "$VMID" scsi0 "$DISK_SIZE" >/dev/null
 
 echo "[+] Setting boot order..."
 qm set "$VMID" --boot order=scsi0
