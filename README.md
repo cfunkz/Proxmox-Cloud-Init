@@ -6,8 +6,7 @@ and only then touches the host.
 
 Choices are shown as numbered lists built from what the host actually has: distros,
 CPU types the host CPU supports (plus custom models), core and memory presets up to the
-host's size, storages with free space, disk sizes, bridges with their IPs 
-and GUI
+host's size, storages with free space, disk sizes, bridges with their IPs and GUI
 comments, VLAN tags already used on a bridge, gateway candidates, DNS providers and the
 SSH key files found on the host. Pick by number, by name, or type your own value where
 the list says so.
@@ -27,8 +26,7 @@ chmod +x create-vm.sh
 | debian-13 / debian-12 | Debian genericcloud | SHA512SUMS |
 | rocky-10 / rocky-9 | Rocky GenericCloud Base | per-image .CHECKSUM |
 | alma-10 / alma-9 | AlmaLinux GenericCloud | CHECKSUM |
-| fedora | newest Fedora Cloud 
-Base Generic release (looked up at run time) | CHECKSUM |
+| fedora | newest Fedora Cloud Base Generic release (looked up at run time) | CHECKSUM |
 | custom | any qcow2/img/raw URL | checksum file URL or a pasted sha256/sha512 hash |
 
 Images are cached in `/var/lib/vz/template/cloudimg/<key>/` and re-checked against
@@ -52,8 +50,7 @@ For a static NIC the script predicts the network before asking:
 3. **Nothing known**: you type `IP/CIDR` and the gateway defaults to the first usable
    host of that subnet (or the last one if the VM itself is the first).
 
-It then suggests the first free address from `.100` up, skipping 
-every IP already
+It then suggests the first free address from `.100` up, skipping every IP already
 configured on a guest or the host, and warns if the address answers ping. You can
 type `10.5.0.20/24`, `10.5.0.20` (known prefix, else /24) or just `20` when the subnet
 is known. Only one NIC gets the default gateway; later NICs default to none.
@@ -61,8 +58,7 @@ DNS defaults to that gateway (or `host` to inherit the node's resolvers).
 
 ## Security and reliability
 
-* `set -Eeuo pipefail`, `umask 077`, every answer validated and 
-re-asked when wrong.
+* `set -Eeuo pipefail`, `umask 077`, every answer validated and re-asked when wrong.
 * Downloads over HTTPS only (custom http needs explicit confirmation), checksums
   verified, concurrent runs locked per image.
 * SSH keys are checked with `ssh-keygen` before use; passwords are typed twice,

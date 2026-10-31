@@ -27,8 +27,7 @@ DEF_SSHKEYS="/root/.ssh/authorized_keys"
 DEF_DNS=""                # blank = gateway of the first static NIC
 DEF_SEARCHDOMAIN=""       # blank = search domain from the host's resolv.conf
 DEF_ONBOOT="1"
-DEF_UPGRADE="1"           # upgrade 
-packages on first boot
+DEF_UPGRADE="1"           # upgrade packages on first boot
 SNIPPET_STORAGE=""        # blank = first storage with "snippets" content
 IMG_DIR="/var/lib/vz/template/cloudimg"
 KEEP_ON_FAIL="0"          # 1 = keep a half-built VM instead of destroying it
@@ -38,22 +37,18 @@ PVE_DIR="${PVE_DIR:-/etc/pve}"
 CONF_FILE="${CREATE_VM_CONF:-/etc/create-vm.conf}"
 DRY_RUN=0
 
-# Distro catalog: key|label|default 
-user|image URL|checksum URL
+# Distro catalog: key|label|default user|image URL|checksum URL
 #   checksum URL "@file" = per-image checksum file (<image URL>.CHECKSUM, single entry)
 #   image URL "fedora"   = resolved to the newest Fedora Cloud release at runtime
 CATALOG=(
   "ubuntu-26.04|Ubuntu 26.04 LTS (Resolute)|ubuntu|https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img|https://cloud-images.ubuntu.com/resolute/current/SHA256SUMS"
-  "ubuntu-24.04|Ubuntu 24.04 LTS (Noble)|ubuntu|https://cloud-images.ubuntu.com/noble/current
-/noble-server-cloudimg-amd64.img|https://cloud-images.ubuntu.com/noble/current/SHA256SUMS"
+  "ubuntu-24.04|Ubuntu 24.04 LTS (Noble)|ubuntu|https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img|https://cloud-images.ubuntu.com/noble/current/SHA256SUMS"
   "ubuntu-22.04|Ubuntu 22.04 LTS (Jammy)|ubuntu|https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img|https://cloud-images.ubuntu.com/jammy/current/SHA256SUMS"
   "debian-13|Debian 13 (Trixie)|debian|https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2|https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS"
-  "debian-12|Debian 12 
-(Bookworm)|debian|https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2|https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS"
+  "debian-12|Debian 12 (Bookworm)|debian|https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2|https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS"
   "rocky-10|Rocky Linux 10|rocky|https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base.latest.x86_64.qcow2|@file"
   "rocky-9|Rocky Linux 9|rocky|https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2|@file"
-  "alma-10|AlmaLinux 10|almalinux|https://repo
-.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-latest.x86_64.qcow2|https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/CHECKSUM"
+  "alma-10|AlmaLinux 10|almalinux|https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-latest.x86_64.qcow2|https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/CHECKSUM"
   "alma-9|AlmaLinux 9|almalinux|https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2|https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/CHECKSUM"
   "fedora|Fedora Cloud (latest release)|fedora|fedora|"
   "custom|Custom image URL|cloud|custom|"
@@ -92,8 +87,7 @@ ask_yn() {
   while true; do
     read -erp "$q [$([[ $def == y ]] && echo Y/n || echo y/N)]: " a || exit 130
     a="${a:-$def}"
-    case "${a,,}" in y|yes) return 0 ;; 
-n|no) return 1 ;; esac
+    case "${a,,}" in y|yes) return 0 ;; n|no) return 1 ;; esac
   done
 }
 
@@ -139,8 +133,7 @@ run() {
 # ---------------------------------------------------------------------------
 is_ipv4() {
   local ip="$1" o
-  [[ "$ip" =~ ^([0-9]{1,3})\.([0-9]{1,3})
-\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+  [[ "$ip" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
   for o in "${BASH_REMATCH[@]:1}"; do (( 10#$o <= 255 )) || return 1; done
 }
 ip2int() { local a b c d; IFS=. read -r a b c d <<<"$1"; echo $(( (10#$a << 24) | (10#$b << 16) | (10#$c << 8) | 10#$d )); }
@@ -199,8 +192,7 @@ iface_comment() {
   ' /etc/network/interfaces 2>/dev/null || true
 }
 
-# Every guest NIC in the cluster: kind|id|bridge|tag|ip/prefix|gw 
-(ip may be dhcp/empty)
+# Every guest NIC in the cluster: kind|id|bridge|tag|ip/prefix|gw (ip may be dhcp/empty)
 guest_addresses() {
   local files=()
   shopt -s nullglob
@@ -231,8 +223,7 @@ guest_addresses() {
 host_cores()  { nproc 2>/dev/null || echo 1; }
 host_mem_mb() { awk -v k="${1:-MemTotal}:" '$1==k{print int($2/1024); exit}' /proc/meminfo 2>/dev/null || echo 0; }
 host_has_flags() { local f fl; fl=" $(awk -F: '/^flags/{print $2; exit}' /proc/cpuinfo 2>/dev/null) "; for f in "$@"; do [[ "$fl" == *" $f "* ]] || return 1; done; }
-host_resolvers() { awk 
-'$1=="nameserver"{printf "%s ", $2}' /etc/resolv.conf 2>/dev/null | sed 's/ $//' || true; }
+host_resolvers() { awk '$1=="nameserver"{printf "%s ", $2}' /etc/resolv.conf 2>/dev/null | sed 's/ $//' || true; }
 human_gib() { awk -v k="$1" 'BEGIN{ g=k/1048576; if (g>=1024) printf "%.1fT", g/1024; else printf "%.0fG", g }'; }
 
 host_search_domain() { awk '$1=="search"||$1=="domain"{print $2; exit}' /etc/resolv.conf 2>/dev/null || true; }
@@ -248,8 +239,7 @@ checksum_lookup() {
   local file="$1" name="$2" single="${3:-}" line h n count=0 only=""
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%$'\r'}"
-    if [[ "$line" =~ ^SHA(256|512)\ \((.
-+)\)\ =\ ([0-9a-fA-F]+)$ ]]; then
+    if [[ "$line" =~ ^SHA(256|512)\ \((.+)\)\ =\ ([0-9a-fA-F]+)$ ]]; then
       n="${BASH_REMATCH[2]}"; h="${BASH_REMATCH[3]}"
     elif [[ "$line" =~ ^([0-9a-fA-F]{64}|[0-9a-fA-F]{128})\ [\ *](.+)$ ]]; then
       h="${BASH_REMATCH[1]}"; n="${BASH_REMATCH[2]}"
@@ -277,8 +267,7 @@ resolve_fedora() {
   die "Could not find a Fedora Cloud image under $base"
 }
 
-# Download (or reuse) IMG_URL into IMG_PATH and verify it against 
-EXPECT ("algo hash" or empty)
+# Download (or reuse) IMG_URL into IMG_PATH and verify it against EXPECT ("algo hash" or empty)
 get_image() {
   local algo="" want=""
   [[ -n "$EXPECT" ]] && read -r algo want <<<"$EXPECT"
@@ -297,8 +286,7 @@ get_image() {
   TMP_FILES+=("${IMG_PATH}.part")
   curl -fL --retry 3 --connect-timeout 15 --progress-bar -o "${IMG_PATH}.part" "$IMG_URL" || die "Download failed: $IMG_URL"
   mv -f "${IMG_PATH}.part" "$IMG_PATH"
-  if ! verify; then rm -f "$IMG_PATH"; die "Checksum 
-mismatch for ${IMG_URL##*/}, image deleted"; fi
+  if ! verify; then rm -f "$IMG_PATH"; die "Checksum mismatch for ${IMG_URL##*/}, image deleted"; fi
   [[ -n "$want" ]] && log "Checksum verified (${algo})"
   return 0
 }
@@ -318,16 +306,14 @@ v_mem()  { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 512 )) || { echo "  Memory in MB, 
 v_cores() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 512 )) || { echo "  1 or more cores" >&2; return 1; }; }
 v_01()   { [[ "$1" == 0 || "$1" == 1 ]] || { echo "  Enter 0 or 1" >&2; return 1; }; }
 v_vlan() { [[ -z "$1" || "$1" == none ]] && return 0; [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 4094 )) || { echo "  VLAN tag 1-4094, or blank for none" >&2; return 1; }; }
-v_cpu()  { [[ "$1" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "  Invalid CPU type" 
->&2; return 1; }; }
+v_cpu()  { [[ "$1" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "  Invalid CPU type" >&2; return 1; }; }
 v_user() { [[ "$1" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$1" != root ]] || { echo "  Lowercase user name, not root" >&2; return 1; }; }
 v_dns() {
   [[ "$1" == host ]] && return 0
   local s; for s in ${1//,/ }; do is_ipv4 "$s" || { echo "  '$s' is not an IPv4 address (or type 'host')" >&2; return 1; }; done
   [[ -n "${1//[ ,]/}" ]] || { echo "  Enter at least one DNS server, or 'host'" >&2; return 1; }
 }
-v_domain() { [[ -z "$1" || "$1" == none || "$1" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "  Invalid search domain" 
->&2; return 1; }; }
+v_domain() { [[ -z "$1" || "$1" == none || "$1" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "  Invalid search domain" >&2; return 1; }; }
 v_url() { [[ "$1" =~ ^https?://[^[:space:]]+$ ]] || { echo "  Enter an http(s) URL" >&2; return 1; }; }
 v_any() { return 0; }
 
@@ -339,8 +325,7 @@ on_exit() {
   local rc=$?
   set +e
   (( ${#TMP_FILES[@]} )) && rm -f "${TMP_FILES[@]}"
-  if (( rc != 0 && CREATED == 1 )); 
-then
+  if (( rc != 0 && CREATED == 1 )); then
     if (( KEEP_ON_FAIL )); then
       echo "Build failed; VM $VMID was kept. Remove it with: qm destroy $VMID --purge" >&2
     else
@@ -362,8 +347,7 @@ trap '(( BASH_SUBSHELL )) || echo "${C_R}Failed at line $LINENO: $BASH_COMMAND${
 load_config() {
   [[ -f "$CONF_FILE" ]] || return 0
   local owner perms
-  owner="$(stat -c %u "$CONF_FILE")"; perms="$(stat -c 
-%a "$CONF_FILE")"
+  owner="$(stat -c %u "$CONF_FILE")"; perms="$(stat -c %a "$CONF_FILE")"
   [[ "$owner" == 0 ]] || die "$CONF_FILE must be owned by root"
   (( (8#$perms & 8#022) == 0 )) || die "$CONF_FILE must not be group/world writable"
   # shellcheck source=/dev/null
@@ -433,8 +417,7 @@ step_vm() {
   local opts=() c hc; hc="$(host_cores)"
   for c in 1 2 4 6 8 12 16 24 32; do (( c <= hc )) && opts+=("$c|"); done
   MENU_FREE=v_cores menu CORES "CPU cores" "$DEF_CORES" "${opts[@]}"
-  (( CORES <= hc )) || warn "$CORES 
-cores is more than the host's $hc threads"
+  (( CORES <= hc )) || warn "$CORES cores is more than the host's $hc threads"
 
   opts=("host|all host CPU features, fastest (no live migration to different CPUs)")
   opts+=("x86-64-v2-AES|portable, safe for mixed clusters (Proxmox default)")
@@ -446,16 +429,14 @@ cores is more than the host's $hc threads"
     < <(awk '$1=="cpu-model:"{print $2}' "$PVE_DIR/virtual-guest/cpu-models.conf" 2>/dev/null)
   MENU_FREE=v_cpu menu CPU "CPU type" "$DEF_CPU" "${opts[@]}"
   if [[ "$DISTRO" =~ ^(rocky|alma)-10$ && "$CPU" =~ ^(x86-64-v2|x86-64-v2-AES|kvm64|qemu64)$ ]]; then
-    warn "$DISTRO needs x86-64-v3 or newer and will not boot with 
-$CPU"
+    warn "$DISTRO needs x86-64-v3 or newer and will not boot with $CPU"
     ask_yn "Keep $CPU anyway?" n || MENU_FREE=v_cpu menu CPU "CPU type" host "${opts[@]}"
   fi
 
   echo; echo "${C_B}Memory${C_0} ${C_D}(host: $(host_mem_mb) MB total, $(host_mem_mb MemAvailable) MB available)${C_0}"
   local hm; hm="$(host_mem_mb)"; opts=()
   for m in 1024 2048 4096 8192 16384 32768 65536; do (( hm == 0 || m <= hm )) && opts+=("$m|$(( m / 1024 )) GiB"); done
-  MENU_FREE=v_mem menu MEM 
-"Memory (MB)" "$DEF_MEM" "${opts[@]}"
+  MENU_FREE=v_mem menu MEM "Memory (MB)" "$DEF_MEM" "${opts[@]}"
   (( hm == 0 || MEM <= hm )) || warn "$MEM MB is more than the host has"
 
   echo; echo "${C_B}Firmware${C_0}"
@@ -464,8 +445,7 @@ $CPU"
   echo; echo "${C_B}Storage${C_0}"
   local stores=() s def="" name type st total used avail
   opts=()
-  while read -r name type st total 
-used avail _; do
+  while read -r name type st total used avail _; do
     [[ "$st" == active ]] || continue
     stores+=("$name")
     opts+=("$name|$type, $(human_gib "$avail") free of $(human_gib "$total")")
@@ -508,14 +488,12 @@ step_network() {
   echo
   echo "${C_B}DNS${C_0}"
   local opts=() hr; hr="$(host_resolvers)"
-  [[ -n "$FIRST_GW" ]] && 
-opts+=("$FIRST_GW|the VM's gateway (usual for a router/firewall)")
+  [[ -n "$FIRST_GW" ]] && opts+=("$FIRST_GW|the VM's gateway (usual for a router/firewall)")
   opts+=("host|copy the Proxmox host's resolvers (${hr:-none found})")
   opts+=("1.1.1.1 1.0.0.1|Cloudflare" "9.9.9.9 149.112.112.112|Quad9" "8.8.8.8 8.8.4.4|Google")
   MENU_FREE=v_dns menu DNS "DNS servers (space separated)" "${DEF_DNS:-${FIRST_GW:-host}}" "${opts[@]}"
   local -a dns_list; read -ra dns_list <<<"${DNS//,/ }"; DNS="${dns_list[*]}"
-  local sd; sd="${DEF_SEARCHDOMAIN:-$
-(host_search_domain)}"
+  local sd; sd="${DEF_SEARCHDOMAIN:-$(host_search_domain)}"
   ask SEARCHDOMAIN "Search domain (none = skip)" "${sd:-none}" v_domain
 }
 
@@ -543,8 +521,7 @@ nic_prompt() {
 
   menu fw "Proxmox firewall on this NIC" "$DEF_FW" "1|on (datacenter/VM firewall rules apply)" "0|off (e.g. a router VM filters this net)"
 
-  local net="virtio,bridge=$
-{br},firewall=${fw}"
+  local net="virtio,bridge=${br},firewall=${fw}"
   [[ -n "$tag" ]] && net+=",tag=${tag}"
   desc="${br}${tag:+ vlan $tag} fw=$fw"
 
@@ -583,8 +560,7 @@ nic_static() {
   [[ -n "$hostaddr" ]] && used+=("${hostaddr%/*}")
   if [[ -z "$k_ip" && -n "$hostaddr" ]]; then
     k_ip="${hostaddr%/*}" k_p="${hostaddr#*/}" why="from host address $hostaddr on $hostif"
-    if [[ "$DR_DEV" == "$hostif" 
-&& -n "$DR_GW" ]]; then k_gw="$DR_GW"; why+=", via the default route"
+    if [[ "$DR_DEV" == "$hostif" && -n "$DR_GW" ]]; then k_gw="$DR_GW"; why+=", via the default route"
     else k_gw="$k_ip"; why+=", host routes this net"; fi
   fi
   [[ -n "$k_gw" ]] && used+=("$k_gw")
@@ -612,8 +588,7 @@ nic_static() {
     p=$(( 10#$p ))
     is_host_addr "$ip" "$p" || { echo "  $ip is the network or broadcast address of /$p" >&2; continue; }
     if ip_in_use "$ip" "${used[@]}"; then
-      warn "$ip is already configured 
-on another guest or the host"
+      warn "$ip is already configured on another guest or the host"
       ask_yn "Use it anyway?" n || continue
     fi
     if ping_responds "$ip" "$hostif"; then
@@ -624,8 +599,7 @@ on another guest or the host"
   done
 
   # Gateway candidates: learned one if it fits this subnet, first and last usable host
-  local cidr; cidr="$(int2ip "$(net_int 
-"$ip" "$p")")/$p"
+  local cidr; cidr="$(int2ip "$(net_int "$ip" "$p")")/$p"
   local opts=() gw_def="" c fh lh
   if [[ -n "$k_gw" ]] && is_ipv4 "$k_gw" && in_subnet "$k_gw" "$ip" "$p" && [[ "$k_gw" != "$ip" ]]; then
     opts+=("$k_gw|$why"); gw_def="$k_gw"
@@ -692,8 +666,7 @@ step_user() {
   echo; echo "${C_B}SSH keys${C_0}"
   local keys def_keys="none" opts=() f cnt home=""
   [[ -n "${SUDO_USER:-}" ]] && home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
-  for f in "$DEF_SSHKEYS" /root/.ssh/authorized_keys /root/.ssh/*.pub $
-{home:+"$home"/.ssh/*.pub}; do
+  for f in "$DEF_SSHKEYS" /root/.ssh/authorized_keys /root/.ssh/*.pub ${home:+"$home"/.ssh/*.pub}; do
     [[ -s "$f" ]] || continue
     ip_in_use "$f" "${opts[@]%%|*}" && continue
     cnt="$(grep -cE '^(ssh-|ecdsa-|sk-)' "$f" || true)"
@@ -703,8 +676,7 @@ step_user() {
   done
   opts+=("none|no SSH key (password login only)")
   while true; do
-    MENU_FREE=v_any menu keys 
-"SSH key file, or paste a public key" "$def_keys" "${opts[@]}"
+    MENU_FREE=v_any menu keys "SSH key file, or paste a public key" "$def_keys" "${opts[@]}"
     [[ "$keys" == none ]] && break
     SSHKEY_FILE="$(mktemp)"; TMP_FILES+=("$SSHKEY_FILE")
     if [[ -f "$keys" ]]; then grep -E '^(ssh-|ecdsa-|sk-)' "$keys" >"$SSHKEY_FILE" || true
@@ -724,8 +696,7 @@ step_user() {
       [[ -n "$SSHKEY_FILE" ]] && break
       echo "  Without an SSH key a password is required" >&2; continue
     fi
-    if [[ -z "$p1" ]]; then CIPASS="$
-(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)"; PASS_GENERATED=1; break; fi
+    if [[ -z "$p1" ]]; then CIPASS="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)"; PASS_GENERATED=1; break; fi
     (( ${#p1} >= 8 )) || { echo "  At least 8 characters" >&2; continue; }
     read -rsp "Repeat:   " p2 || exit 130; echo
     [[ "$p1" == "$p2" ]] && { CIPASS="$p1"; break; }
@@ -735,16 +706,14 @@ step_user() {
 
 step_options() {
   hdr "Options"
-  UPGRADE=0; ask_yn "Upgrade packages on first boot?" "$
-([[ $DEF_UPGRADE == 1 ]] && echo y || echo n)" && UPGRADE=1
+  UPGRADE=0; ask_yn "Upgrade packages on first boot?" "$([[ $DEF_UPGRADE == 1 ]] && echo y || echo n)" && UPGRADE=1
   ONBOOT=0; ask_yn "Start with the host (onboot)?" "$([[ $DEF_ONBOOT == 1 ]] && echo y || echo n)" && ONBOOT=1
   menu FINISH "When done" start "start|boot the VM now" "stopped|leave it powered off" "template|convert to a template for cloning"
 
   SNIP_STORE="$SNIPPET_STORAGE"
   if [[ -z "$SNIP_STORE" ]]; then
     local snips=()
-    mapfile -t snips < <(pvesm status --content snippets 2>/dev/null | awk 'NR>1 && $3=="active"{print 
-$1}')
+    mapfile -t snips < <(pvesm status --content snippets 2>/dev/null | awk 'NR>1 && $3=="active"{print $1}')
     if (( ${#snips[@]} > 1 )); then
       menu SNIP_STORE "Storage for the cloud-init snippet" "${snips[0]}" "${snips[@]}"
     elif (( ${#snips[@]} )); then SNIP_STORE="${snips[0]}"; fi
@@ -764,8 +733,7 @@ summary() {
   echo "  VM      : $VMID ($VMNAME) | $CORES cores, ${MEM} MB, $DISK_SIZE on $STORAGE | cpu $CPU | $BIOS"
   local i
   for i in "${!NIC_DESC[@]}"; do echo "  net$i    : ${NIC_DESC[i]}"; done
-  echo "  DNS     : $DNS | search $
-{SEARCHDOMAIN}"
+  echo "  DNS     : $DNS | search ${SEARCHDOMAIN}"
   echo "  Login   : $CIUSER | ssh keys: $([[ -n $SSHKEY_FILE ]] && echo yes || echo no) | password: $([[ -n $CIPASS ]] && echo yes || echo no)"
   echo "  Options : upgrade=$UPGRADE onboot=$ONBOOT finish=$FINISH snippets=${SNIP_STORE:-none}"
   echo
@@ -774,8 +742,7 @@ summary() {
 
 write_snippet() {
   [[ -n "$SNIP_STORE" ]] || return 0
-  SNIP_NAME="create-vm-vendor.ya
-ml"
+  SNIP_NAME="create-vm-vendor.yaml"
   (( UPGRADE )) && SNIP_NAME="create-vm-vendor-upgrade.yaml"
   local path; path="$(pvesm path "${SNIP_STORE}:snippets/${SNIP_NAME}" 2>/dev/null)" || die "Cannot resolve snippet path on $SNIP_STORE"
   local body
@@ -786,8 +753,7 @@ package_upgrade: $( (( UPGRADE )) && echo true || echo false)
 packages:
   - qemu-guest-agent
 runcmd:
-  - [ systemctl, enable, --now, 
-qemu-guest-agent ]"
+  - [ systemctl, enable, --now, qemu-guest-agent ]"
   if [[ ! -f "$path" ]] || [[ "$(cat "$path")" != "$body" ]]; then
     log "Writing cloud-init vendor snippet $SNIP_NAME"
     if (( DRY_RUN )); then hint "[dry-run] would write $path"
@@ -799,8 +765,7 @@ build() {
   get_image
   write_snippet
 
-  local args=(--name "$VMNAME" 
---ostype l26 --machine q35 --bios "$BIOS" --cpu "$CPU"
+  local args=(--name "$VMNAME" --ostype l26 --machine q35 --bios "$BIOS" --cpu "$CPU"
               --cores "$CORES" --memory "$MEM" --balloon 0 --scsihw virtio-scsi-single
               --agent enabled=1 --serial0 socket --vga std --tablet 0 --onboot "$ONBOOT"
               --tags "create-vm;${DISTRO//./-}")
@@ -828,8 +793,7 @@ build() {
   log "Configuring cloud-init..."
   run qm set "$VMID" --ide2 "${STORAGE}:cloudinit" --boot order=scsi0
   local ci=(--ciuser "$CIUSER")
-  [[ -n "$CIPASS" ]] && 
-ci+=(--cipassword "$CIPASS")
+  [[ -n "$CIPASS" ]] && ci+=(--cipassword "$CIPASS")
   for i in "${!NIC_IPCFG[@]}"; do [[ -n "${NIC_IPCFG[i]}" ]] && ci+=("--ipconfig$i" "${NIC_IPCFG[i]}"); done
   [[ "$DNS" != host ]] && ci+=(--nameserver "$DNS")
   [[ "$SEARCHDOMAIN" != none && -n "$SEARCHDOMAIN" ]] && ci+=(--searchdomain "$SEARCHDOMAIN")
@@ -847,8 +811,7 @@ ci+=(--cipassword "$CIPASS")
 
 report() {
   hdr "Done"
-  echo "  VM $VMID ($VMNAME) $
-{DISTRO_LABEL}: $FINISH"
+  echo "  VM $VMID ($VMNAME) ${DISTRO_LABEL}: $FINISH"
   local i; for i in "${!NIC_DESC[@]}"; do echo "  net$i     : ${NIC_DESC[i]}"; done
   echo "  User     : $CIUSER"
   (( PASS_GENERATED )) && echo "  Password : $CIPASS   ${C_Y}(generated, store it now; it is not shown again)${C_0}"
