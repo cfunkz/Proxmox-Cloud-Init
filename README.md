@@ -4,6 +4,13 @@
 It asks a short series of questions, each with a sensible default, shows a summary
 and only then touches the host.
 
+Choices are shown as numbered lists built from what the host actually has: distros,
+CPU types the host CPU supports (plus custom models), core and memory presets up to the
+host's size, storages with free space, disk sizes, bridges with their IPs and GUI
+comments, VLAN tags already used on a bridge, gateway candidates, DNS providers and the
+SSH key files found on the host. Pick by number, by name, or type your own value where
+the list says so.
+
 ```bash
 wget -O create-vm.sh https://raw.githubusercontent.com/cfunkz/Proxmox-Cloud-Init/main/create-vm.sh
 chmod +x create-vm.sh

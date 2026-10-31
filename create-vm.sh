@@ -91,21 +91,31 @@ ask_yn() {
   done
 }
 
-# choose VAR "Question" default item...: pick by number or by exact value
-choose() {
-  local __var="$1" q="$2" def="$3" a i
+# menu VAR "Question" default "value|description"...: numbered list, pick by number or value.
+# Set MENU_FREE=<validator> right before the call to also accept other typed values.
+menu() {
+  local __var="$1" q="$2" def="$3" free="${MENU_FREE:-}" a e v d i
+  MENU_FREE=""
   shift 3
-  local items=("$@")
+  local vals=() w=8
+  for e in "$@"; do v="${e%%|*}"; (( ${#v} > w )) && w=${#v}; done
+  for e in "$@"; do
+    v="${e%%|*}"; d=""; [[ "$e" == *"|"* ]] && d="${e#*|}"
+    vals+=("$v")
+    printf '  %s%2d) %-*s  %s%s\n' "$([[ $v == "$def" ]] && echo "*" || echo " ")" "${#vals[@]}" "$w" "$v" "${C_D}" "$d${C_0}"
+  done
+  [[ -n "$free" ]] && hint "...or type another value"
   while true; do
     read -erp "$q [$def]: " a || exit 130
     a="${a:-$def}"
-    if [[ "$a" =~ ^[0-9]+$ ]] && (( a >= 1 && a <= ${#items[@]} )); then
-      printf -v "$__var" '%s' "${items[a-1]}"; return 0
+    if [[ "$a" =~ ^[0-9]+$ ]] && (( 10#$a >= 1 && 10#$a <= ${#vals[@]} )); then
+      printf -v "$__var" '%s' "${vals[10#$a-1]}"; return 0
     fi
-    for i in "${items[@]}"; do
-      [[ "$a" == "$i" ]] && { printf -v "$__var" '%s' "$a"; return 0; }
+    for v in "${vals[@]}"; do
+      [[ "$a" == "$v" ]] && { printf -v "$__var" '%s' "$a"; return 0; }
     done
-    echo "  Pick 1-${#items[@]} or type one of: ${items[*]}" >&2
+    if [[ -n "$free" && -n "$a" ]] && "$free" "$a"; then printf -v "$__var" '%s' "$a"; return 0; fi
+    [[ -n "$free" ]] || echo "  Pick 1-${#vals[@]}" >&2
   done
 }
 
@@ -182,7 +192,7 @@ iface_comment() {
   ' /etc/network/interfaces 2>/dev/null || true
 }
 
-# Static addresses of every guest in the cluster: kind|id|bridge|tag|ip/prefix|gw
+# Every guest NIC in the cluster: kind|id|bridge|tag|ip/prefix|gw (ip may be dhcp/empty)
 guest_addresses() {
   local files=()
   shopt -s nullglob
@@ -206,9 +216,15 @@ guest_addresses() {
       SEEN[f,idx]=1
     }
     END { for (k in SEEN) { split(k,a,SUBSEP)
-            if (IP[k] ~ /^[0-9.]+\/[0-9]+$/) print kind[a[1]] "|" ids[a[1]] "|" BR[k] "|" TG[k] "|" IP[k] "|" GW[k] } }
+            print kind[a[1]] "|" ids[a[1]] "|" BR[k] "|" TG[k] "|" IP[k] "|" GW[k] } }
   ' "${files[@]}" 2>/dev/null || true
 }
+
+host_cores()  { nproc 2>/dev/null || echo 1; }
+host_mem_mb() { awk -v k="${1:-MemTotal}:" '$1==k{print int($2/1024); exit}' /proc/meminfo 2>/dev/null || echo 0; }
+host_has_flags() { local f fl; fl=" $(awk -F: '/^flags/{print $2; exit}' /proc/cpuinfo 2>/dev/null) "; for f in "$@"; do [[ "$fl" == *" $f "* ]] || return 1; done; }
+host_resolvers() { awk '$1=="nameserver"{printf "%s ", $2}' /etc/resolv.conf 2>/dev/null | sed 's/ $//' || true; }
+human_gib() { awk -v k="$1" 'BEGIN{ g=k/1048576; if (g>=1024) printf "%.1fT", g/1024; else printf "%.0fG", g }'; }
 
 host_search_domain() { awk '$1=="search"||$1=="domain"{print $2; exit}' /etc/resolv.conf 2>/dev/null || true; }
 
@@ -351,13 +367,12 @@ preflight() {
 
 step_distro() {
   hdr "Image"
-  local i key label user url sum keys=()
+  local i key label user url sum opts=()
   for i in "${!CATALOG[@]}"; do
-    IFS='|' read -r key label _ _ _ <<<"${CATALOG[i]}"
-    printf '  %2d) %-14s %s\n' $((i + 1)) "$key" "$label"
-    keys+=("$key")
+    IFS='|' read -r key label user _ _ <<<"${CATALOG[i]}"
+    opts+=("$key|$label (user $user)")
   done
-  choose DISTRO "Distro" "$DEF_DISTRO" "${keys[@]}"
+  menu DISTRO "Distro" "$DEF_DISTRO" "${opts[@]}"
   for i in "${!CATALOG[@]}"; do
     IFS='|' read -r key label user url sum <<<"${CATALOG[i]}"
     [[ "$key" == "$DISTRO" ]] && break
@@ -395,23 +410,55 @@ step_distro() {
 step_vm() {
   hdr "VM"
   local next; next="$(pvesh get /cluster/nextid 2>/dev/null || echo 100)"
-  ask VMID "VMID" "$next" v_vmid
+  ask VMID "VMID (next free: $next)" "$next" v_vmid
   ask VMNAME "Name" "${DISTRO%%-*}-${VMID}" v_name
-  ask CORES "CPU cores" "$DEF_CORES" v_cores
-  ask MEM "Memory (MB)" "$DEF_MEM" v_mem
-  ask DISK_SIZE "Disk size" "$DEF_DISK" v_disk
-  [[ "$DISK_SIZE" =~ [GT]$ ]] || DISK_SIZE="${DISK_SIZE}G"
-  ask CPU "CPU type" "$DEF_CPU" v_cpu
-  choose BIOS "Firmware (ovmf = UEFI, seabios = legacy)" "$DEF_BIOS" ovmf seabios
 
-  local stores=() s def=""
-  mapfile -t stores < <(pvesm status --content images 2>/dev/null | awk 'NR>1 && $3=="active"{print $1}')
+  echo; echo "${C_B}CPU${C_0} ${C_D}(host: $(host_cores) threads, $(awk -F': ' '/^model name/{print $2; exit}' /proc/cpuinfo 2>/dev/null))${C_0}"
+  local opts=() c hc; hc="$(host_cores)"
+  for c in 1 2 4 6 8 12 16 24 32; do (( c <= hc )) && opts+=("$c|"); done
+  MENU_FREE=v_cores menu CORES "CPU cores" "$DEF_CORES" "${opts[@]}"
+  (( CORES <= hc )) || warn "$CORES cores is more than the host's $hc threads"
+
+  opts=("host|all host CPU features, fastest (no live migration to different CPUs)")
+  opts+=("x86-64-v2-AES|portable, safe for mixed clusters (Proxmox default)")
+  host_has_flags avx avx2 bmi1 bmi2 fma movbe && opts+=("x86-64-v3|portable + AVX2 (needed by Rocky/Alma 10 if not host)")
+  host_has_flags avx512f avx512bw avx512cd avx512dq avx512vl && opts+=("x86-64-v4|portable + AVX-512")
+  opts+=("kvm64|oldest baseline, maximum compatibility")
+  local m
+  while read -r m; do [[ -n "$m" ]] && opts+=("custom-$m|custom model from cpu-models.conf"); done \
+    < <(awk '$1=="cpu-model:"{print $2}' "$PVE_DIR/virtual-guest/cpu-models.conf" 2>/dev/null)
+  MENU_FREE=v_cpu menu CPU "CPU type" "$DEF_CPU" "${opts[@]}"
+  if [[ "$DISTRO" =~ ^(rocky|alma)-10$ && "$CPU" =~ ^(x86-64-v2|x86-64-v2-AES|kvm64|qemu64)$ ]]; then
+    warn "$DISTRO needs x86-64-v3 or newer and will not boot with $CPU"
+    ask_yn "Keep $CPU anyway?" n || MENU_FREE=v_cpu menu CPU "CPU type" host "${opts[@]}"
+  fi
+
+  echo; echo "${C_B}Memory${C_0} ${C_D}(host: $(host_mem_mb) MB total, $(host_mem_mb MemAvailable) MB available)${C_0}"
+  local hm; hm="$(host_mem_mb)"; opts=()
+  for m in 1024 2048 4096 8192 16384 32768 65536; do (( hm == 0 || m <= hm )) && opts+=("$m|$(( m / 1024 )) GiB"); done
+  MENU_FREE=v_mem menu MEM "Memory (MB)" "$DEF_MEM" "${opts[@]}"
+  (( hm == 0 || MEM <= hm )) || warn "$MEM MB is more than the host has"
+
+  echo; echo "${C_B}Firmware${C_0}"
+  menu BIOS "Firmware" "$DEF_BIOS" "ovmf|UEFI (recommended for cloud images)" "seabios|legacy BIOS"
+
+  echo; echo "${C_B}Storage${C_0}"
+  local stores=() s def="" name type st total used avail
+  opts=()
+  while read -r name type st total used avail _; do
+    [[ "$st" == active ]] || continue
+    stores+=("$name")
+    opts+=("$name|$type, $(human_gib "$avail") free of $(human_gib "$total")")
+  done < <(pvesm status --content images 2>/dev/null | awk 'NR>1')
   (( ${#stores[@]} )) || die "No active storage allows VM disk images"
-  echo "  Storages: $(pvesm status --content images 2>/dev/null | awk 'NR>1 && $3=="active"{printf "%s(%s, %.0fG free)  ", $1, $2, $6/1048576}')"
   for s in "${stores[@]}"; do [[ "$s" == "${DEF_STORAGE:-local-lvm}" ]] && def="$s"; done
-  ask STORAGE "Storage" "${def:-${stores[0]}}" v_storage
+  menu STORAGE "Storage for the disks" "${def:-${stores[0]}}" "${opts[@]}"
+
+  opts=()
+  for s in 16G 32G 64G 128G 256G 512G; do opts+=("$s|"); done
+  MENU_FREE=v_disk menu DISK_SIZE "Disk size" "$DEF_DISK" "${opts[@]}"
+  [[ "$DISK_SIZE" =~ [GT]$ ]] || DISK_SIZE="${DISK_SIZE}G"
 }
-v_storage() { local s; for s in "${stores[@]}"; do [[ "$1" == "$s" ]] && return 0; done; echo "  Pick one of: ${stores[*]}" >&2; return 1; }
 
 # Network: fills NIC_NET[], NIC_IPCFG[], NIC_DESC[] and DNS settings
 step_network() {
@@ -421,13 +468,13 @@ step_network() {
   mapfile -t GUESTS < <(guest_addresses)
   local dr; dr="$(default_route)"; DR_DEV="${dr%%|*}" DR_GW="${dr#*|}"
 
-  local b i addr extra
-  echo "  Bridges on this host:"
-  for i in "${!BRIDGES[@]}"; do
-    b="${BRIDGES[i]}"; addr="$(iface_ipv4 "$b")"; extra=""
-    vlan_aware "$b" && extra+=" vlan-aware"
-    [[ "$b" == "$DR_DEV" ]] && extra+=" default-route"
-    printf '  %2d) %-10s %-18s %s%s\n' $((i + 1)) "$b" "${addr:-(no host IP)}" "$(iface_comment "$b")" "${extra:+ ${C_D}[${extra# }]${C_0}}"
+  local b addr extra cm
+  BRIDGE_OPTS=()
+  for b in "${BRIDGES[@]}"; do
+    addr="$(iface_ipv4 "$b")"; extra=""; cm="$(iface_comment "$b")"
+    vlan_aware "$b" && extra+=", vlan-aware"
+    [[ "$b" == "$DR_DEV" ]] && extra+=", default route"
+    BRIDGE_OPTS+=("$b|${addr:-no host IP}${cm:+  \"$cm\"}$extra")
   done
 
   NIC_NET=() NIC_IPCFG=() NIC_DESC=() GW_SET="" FIRST_GW=""
@@ -439,9 +486,12 @@ step_network() {
   done
 
   echo
-  local dns_def="${DEF_DNS:-${FIRST_GW:-host}}"
-  hint "DNS: space separated IPs, or 'host' to copy the Proxmox host's resolvers"
-  ask DNS "DNS servers" "$dns_def" v_dns
+  echo "${C_B}DNS${C_0}"
+  local opts=() hr; hr="$(host_resolvers)"
+  [[ -n "$FIRST_GW" ]] && opts+=("$FIRST_GW|the VM's gateway (usual for a router/firewall)")
+  opts+=("host|copy the Proxmox host's resolvers (${hr:-none found})")
+  opts+=("1.1.1.1 1.0.0.1|Cloudflare" "9.9.9.9 149.112.112.112|Quad9" "8.8.8.8 8.8.4.4|Google")
+  MENU_FREE=v_dns menu DNS "DNS servers (space separated)" "${DEF_DNS:-${FIRST_GW:-host}}" "${opts[@]}"
   local -a dns_list; read -ra dns_list <<<"${DNS//,/ }"; DNS="${dns_list[*]}"
   local sd; sd="${DEF_SEARCHDOMAIN:-$(host_search_domain)}"
   ask SEARCHDOMAIN "Search domain (none = skip)" "${sd:-none}" v_domain
@@ -452,23 +502,38 @@ nic_prompt() {
   echo; echo "${C_B}-- net${n} --${C_0}"
   local in_list=0 b; for b in "${BRIDGES[@]}"; do [[ "$b" == "$def_br" ]] && in_list=1; done
   (( in_list )) || def_br="${BRIDGES[0]}"
-  choose br "Bridge" "$def_br" "${BRIDGES[@]}"
-  ask tag "VLAN tag (blank = untagged)" "none" v_vlan
+  menu br "Bridge" "$def_br" "${BRIDGE_OPTS[@]}"
+
+  # VLAN tags other guests already use on this bridge
+  local opts=("none|untagged") g kind id gbr gtag gip ggw t
+  local -A seen=()
+  for g in "${GUESTS[@]}"; do
+    IFS='|' read -r kind id gbr gtag gip ggw <<<"$g"
+    [[ "$gbr" == "$br" && -n "$gtag" ]] || continue
+    seen[$gtag]+="$kind $id${gip:+ ($gip)}, "
+  done
+  for t in $(printf '%s\n' "${!seen[@]}" | sort -n); do
+    opts+=("$t|used by ${seen[$t]%, }")
+  done
+  vlan_aware "$br" || (( ${#seen[@]} )) || hint "$br is not VLAN-aware; a tag still works (Proxmox adds a VLAN bridge)"
+  MENU_FREE=v_vlan menu tag "VLAN tag" none "${opts[@]}"
   [[ "$tag" == none ]] && tag=""
-  ask fw "Proxmox firewall on this NIC (0/1)" "$DEF_FW" v_01
+
+  menu fw "Proxmox firewall on this NIC" "$DEF_FW" "1|on (datacenter/VM firewall rules apply)" "0|off (e.g. a router VM filters this net)"
 
   local net="virtio,bridge=${br},firewall=${fw}"
   [[ -n "$tag" ]] && net+=",tag=${tag}"
-  desc="${br}${tag:+ vlan $tag}${fw:+ fw=$fw}"
+  desc="${br}${tag:+ vlan $tag} fw=$fw"
 
-  choose mode "IPv4 (dhcp/static/none)" "$( (( n == 0 )) && echo static || echo dhcp)" dhcp static none
+  menu mode "IPv4" "$( (( n == 0 )) && echo static || echo dhcp)" \
+    "static|fixed address (subnet and gateway predicted for you)" "dhcp|address from a DHCP server" "none|no IPv4"
   case "$mode" in
     dhcp) ipcfg="ip=dhcp"; desc+=" dhcp" ;;
     static) nic_static "$n" "$br" "$tag"; ipcfg="$STATIC_CFG"; desc+=" $STATIC_DESC" ;;
     none) ;;
   esac
 
-  choose v6 "IPv6 (none/auto/dhcp)" none none auto dhcp
+  menu v6 "IPv6" none "none|no IPv6" "auto|SLAAC (router advertisements)" "dhcp|DHCPv6"
   if [[ "$v6" != none ]]; then ipcfg="${ipcfg:+$ipcfg,}ip6=${v6}"; desc+=" ip6=$v6"; fi
 
   NIC_NET[n]="$net" NIC_IPCFG[n]="$ipcfg" NIC_DESC[n]="$desc"
@@ -483,6 +548,7 @@ nic_static() {
   # 1) other guests with a static address on the same bridge + VLAN
   for g in "${GUESTS[@]}"; do
     IFS='|' read -r kind id gbr gtag gip ggw <<<"$g"
+    [[ "$gip" == */* ]] || continue
     used+=("${gip%/*}")
     if [[ -z "$k_ip" && "$gbr" == "$br" && "$gtag" == "$tag" ]]; then
       k_ip="${gip%/*}" k_p="${gip#*/}" k_gw="$ggw" why="from $kind $id on this bridge"
@@ -532,27 +598,33 @@ nic_static() {
     break
   done
 
-  # Gateway: learned one if it fits this subnet, else first usable host
-  local gw_def gw_src
+  # Gateway candidates: learned one if it fits this subnet, first and last usable host
+  local cidr; cidr="$(int2ip "$(net_int "$ip" "$p")")/$p"
+  local opts=() gw_def="" c fh lh
   if [[ -n "$k_gw" ]] && is_ipv4 "$k_gw" && in_subnet "$k_gw" "$ip" "$p" && [[ "$k_gw" != "$ip" ]]; then
-    gw_def="$k_gw" gw_src="$why"
-  else
-    gw_def="$(predict_gateway "$ip" "$p")" gw_src="first usable host of $(int2ip "$(net_int "$ip" "$p")")/$p"
+    opts+=("$k_gw|$why"); gw_def="$k_gw"
   fi
+  if (( p < 31 )); then
+    fh="$(first_host "$ip" "$p")" lh="$(last_host "$ip" "$p")"
+    for c in "$fh" "$lh"; do
+      [[ "$c" == "$ip" || "$c" == "$gw_def" ]] && continue
+      opts+=("$c|$([[ $c == "$fh" ]] && echo first || echo last) usable host of $cidr")
+    done
+    [[ -n "$gw_def" ]] || gw_def="$(predict_gateway "$ip" "$p")"
+  fi
+  opts+=("none|no gateway on this NIC")
   if [[ -n "$GW_SET" ]]; then
-    hint "net${GW_SET} already has the default gateway; 'none' keeps this NIC route-less"
+    hint "net${GW_SET} already has the default gateway, so 'none' is suggested here"
     gw_def="none"
-  else
-    hint "Predicted gateway: ${gw_def:-none} ($gw_src)"
   fi
   local gw
   while true; do
-    ask gw "Gateway (none = no gateway)" "${gw_def:-none}" v_any
+    MENU_FREE=v_any menu gw "Gateway" "${gw_def:-none}" "${opts[@]}"
     [[ "$gw" == none ]] && { gw=""; break; }
     is_ipv4 "$gw" || { echo "  Not an IPv4 address" >&2; continue; }
     [[ "$gw" != "$ip" ]] || { echo "  Gateway cannot be the VM's own address" >&2; continue; }
     if ! in_subnet "$gw" "$ip" "$p"; then
-      warn "$gw is outside $(int2ip "$(net_int "$ip" "$p")")/$p"
+      warn "$gw is outside $cidr"
       ask_yn "Use it anyway (on-link gateway)?" n || continue
     fi
     break
@@ -591,11 +663,20 @@ step_user() {
   ask CIUSER "Username" "$DISTRO_USER" v_user
 
   SSHKEY_FILE=""
-  local keys def_keys=""
-  [[ -s "$DEF_SSHKEYS" ]] && def_keys="$DEF_SSHKEYS"
-  hint "SSH public key: path to a .pub/authorized_keys file, or paste one key line"
+  echo; echo "${C_B}SSH keys${C_0}"
+  local keys def_keys="none" opts=() f cnt home=""
+  [[ -n "${SUDO_USER:-}" ]] && home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+  for f in "$DEF_SSHKEYS" /root/.ssh/authorized_keys /root/.ssh/*.pub ${home:+"$home"/.ssh/*.pub}; do
+    [[ -s "$f" ]] || continue
+    ip_in_use "$f" "${opts[@]%%|*}" && continue
+    cnt="$(grep -cE '^(ssh-|ecdsa-|sk-)' "$f" || true)"
+    (( cnt )) || continue
+    opts+=("$f|$cnt key(s): $(grep -E '^(ssh-|ecdsa-|sk-)' "$f" | awk '{print $NF}' | head -3 | paste -sd, -)")
+    [[ "$def_keys" == none ]] && def_keys="$f"
+  done
+  opts+=("none|no SSH key (password login only)")
   while true; do
-    ask keys "SSH key(s) (none = skip)" "${def_keys:-none}" v_any
+    MENU_FREE=v_any menu keys "SSH key file, or paste a public key" "$def_keys" "${opts[@]}"
     [[ "$keys" == none ]] && break
     SSHKEY_FILE="$(mktemp)"; TMP_FILES+=("$SSHKEY_FILE")
     if [[ -f "$keys" ]]; then grep -E '^(ssh-|ecdsa-|sk-)' "$keys" >"$SSHKEY_FILE" || true
@@ -627,11 +708,15 @@ step_options() {
   hdr "Options"
   UPGRADE=0; ask_yn "Upgrade packages on first boot?" "$([[ $DEF_UPGRADE == 1 ]] && echo y || echo n)" && UPGRADE=1
   ONBOOT=0; ask_yn "Start with the host (onboot)?" "$([[ $DEF_ONBOOT == 1 ]] && echo y || echo n)" && ONBOOT=1
-  choose FINISH "When done (start/stopped/template)" start start stopped template
+  menu FINISH "When done" start "start|boot the VM now" "stopped|leave it powered off" "template|convert to a template for cloning"
 
   SNIP_STORE="$SNIPPET_STORAGE"
   if [[ -z "$SNIP_STORE" ]]; then
-    SNIP_STORE="$(pvesm status --content snippets 2>/dev/null | awk 'NR>1 && $3=="active"{print $1; exit}')"
+    local snips=()
+    mapfile -t snips < <(pvesm status --content snippets 2>/dev/null | awk 'NR>1 && $3=="active"{print $1}')
+    if (( ${#snips[@]} > 1 )); then
+      menu SNIP_STORE "Storage for the cloud-init snippet" "${snips[0]}" "${snips[@]}"
+    elif (( ${#snips[@]} )); then SNIP_STORE="${snips[0]}"; fi
   fi
   if [[ -z "$SNIP_STORE" ]]; then
     warn "No storage has 'snippets' enabled: the guest agent will not be auto-installed."
